@@ -1,0 +1,15 @@
+void GetChar();
+void Init();
+void Expression();
+void Add();
+void Subtract();
+void Multiply();
+void Divide();
+void Factor();
+void EmitLn(char*);
+void Expected(char*);
+void Match(char);
+int IsAddop(char);
+char GetNum();
+char Look;
+char tmp [100];
