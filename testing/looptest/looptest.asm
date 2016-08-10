@@ -1,16 +1,15 @@
         extern printf
         section .data
 fmt:    db "x: %d", 10, 0
+x:      dq 5
 
-        section .bss
-x:      resq 1
         section .text
         global main
 main:
         push rbp
         mov rax , 0; for x = 0
         dec rax
-        mov qword [x], rax 
+        ;mov qword [x], rax 
         mov rax, 10; ; x <= 10
         push rax
 L00:
