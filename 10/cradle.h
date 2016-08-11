@@ -1,4 +1,15 @@
+void LoadVar(char);
+void Term1();
+void Push();
+void FirstFactor();
+void Store(char);
+void FirstTerm();
+void PopAdd();
+void Negate();
+void NegFactor();
+void LoadConst(int);
 void GetChar();
+void Undefined(char);
 void Abort();
 void Decl();
 void TopDecls();

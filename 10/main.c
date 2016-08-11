@@ -21,6 +21,7 @@ void Prog() {
   Match('.');
 }
 void Header() {
+  EmitLn("extern printf");
 }
 
 void TopDecls() {
@@ -71,17 +72,161 @@ int InTable(char N) {
 void Main() {
   Match('b');
   Prolog();
+  Block();
   Match('e');
   Epilog();
 }
 
+void Block() {
+  while(Look != 'e') {
+    Assignment();
+  }
+}
+
+void Assignment() {
+  char Name = GetName();
+  Match('=');
+  Expression();
+  Store(Name);
+}
+
+void Expression() {
+  FirstTerm();
+  while(IsAddop(Look)) {
+    Push();
+    switch(Look) {
+      case '+': Add(); break;
+      case '-': Subtract(); break;
+    }
+  }
+}
+
+void FirstTerm() {
+  FirstFactor();
+  Term1();
+}
+
+void Add() {
+  Match('+');
+  Term();
+  PopAdd();
+}
+void Term() {
+  Factor();
+  Term1();
+}
+void Term1() {
+  while(Look == '*' || Look == '/') {
+    Push();
+    switch(Look) {
+      case '*': Multiply(); break;
+      case '/': Divide(); break;
+    }
+  }
+}
+
+void FirstFactor() {
+  switch(Look) {
+    case '+': 
+      Match('+');
+      Factor();
+      break;
+    case '-':
+      NegFactor();
+      break;
+    default: Factor();
+  }
+}
+void NegFactor() {
+  Match('-');
+  if(IsDigit(Look)) {
+    LoadConst(-GetNum());
+  }
+  else {
+    Factor();
+    Negate();
+  }
+}
+
+void Factor() {
+  if(Look == '(') {
+    Match('(');
+    Expression();
+    Match(')');
+  }
+  else if(IsAlpha(Look)) {
+    LoadVar(GetName());
+  } else {
+    LoadConst(GetNum());
+  }
+}
+
+
+
+void Clear() {
+  EmitLn("xor rax, rax");
+}
+
+void Negate() {
+  EmitLn("neg rax");
+}
+
+void LoadConst(int n){
+  sprintf(tmp, "mov rax, %d", n);
+  EmitLn(tmp);
+}
+
+void LoadVar(char Name) {
+  if(!InTable(Name)) {
+    Undefined(Name);
+  }
+  sprintf(tmp, "mov rax, [%c]", Name);
+  EmitLn(tmp);
+}
+
+void Push() {
+  EmitLn("push rax");
+}
+
+void PopAdd() {
+  EmitLn("add rax, [rsp]");
+  EmitLn("add rsp, 8");
+}
+
+void PopSub() {
+  EmitLn("sub rax, [rsp]");
+  EmitLn("add rsp, 8");
+}
+
+void PopMul() {
+  EmitLn("imul rax, [rsp]");
+  EmitLn("add rsp, 8");
+}
+
+void PopDiv() {
+  EmitLn("mov rbx, rax");
+  EmitLn("pop rax");
+  EmitLn("cqo");
+  EmitLn("idiv rbx");
+}
+
 void Prolog() {
-  EmitLn("extern printf");
   EmitLn("section .text");
   EmitLn("global  main");
   PostLabel("main");
-  
-  
+}
+
+void Store(char Name) {
+  if(!InTable(Name)) {
+    Undefined(Name);
+  }
+  sprintf(tmp, "mov [%c], rax", Name);
+  EmitLn(tmp);
+}
+
+void Undefined(char n) {
+  sprintf(tmp, "Undefined Identifier %c", n);
+  Abort(tmp);
 }
 
 void Epilog() {
@@ -250,19 +395,6 @@ void DoProgram() {
 }
 
 
-void Block() {
-  while(Look != 'e' && Look !='l' && Look != 'u') {
-    Fin();
-    switch(Look) {
-      case 'i': DoIf(); break;
-      case 'w': DoWhile(); break;
-      case 'p': DoLoop(); break;
-      case 'r': DoRepeat(); break;
-      case 'f': DoFor(); break;
-      default : Assignment(); break;
-    }
-  }
-}
 
 void Other() {
   sprintf(tmp, "%c", GetName());
@@ -366,36 +498,6 @@ void DoFor() {
 
 }
 
-void Assignment() {
-  char Name = GetName();
-  Match('=');
-  BoolExpression();
-  sprintf(tmp, "mov [%c], rax", Name);
-  EmitLn(tmp);
-}
-
-void Expression() {
-  Term();
-  while(IsAddop(Look)) {
-    EmitLn("push rax");
-    switch(Look) {
-      case '+': Add(); break;
-      case '-': Subtract(); break;
-    }
-  }
-}
-
-void Term() {
-  SignedFactor();
-  while(Look == '*' || Look == '/') {
-    EmitLn("push rax");
-    switch(Look) {
-    case '*' : Multiply();break;
-    case '/' : Divide();break;
-    }
-  }
-}
-
 void SignedFactor() {
   if(Look == '+') {
     GetChar();
@@ -416,21 +518,6 @@ void SignedFactor() {
   }
 }
 
-void Factor() {
-  if(Look == '(') {
-    Match('(');
-    Expression();
-    Match(')');
-  }
-  else if(IsAlpha(Look)) {
-    Ident();
-  } else {
-    
-    sprintf(tmp, "mov rax, %c", GetNum());
-    EmitLn(tmp);
-  }
-}
-
 void Ident() {
   char Name = GetName();
   if(Look == ('(')) {
@@ -444,36 +531,23 @@ void Ident() {
   }
 }
 
-void Add() {
-  Match('+');
-  Term();
-  EmitLn("pop rbx");
-  EmitLn("add rax, rbx");
-}
-
 void Subtract() {
   Match('-');
   Term();
-  EmitLn("pop rbx");
-  EmitLn("sub rax, rbx");
-  EmitLn("neg rax");
+  PopSub();
 }
 
 
 void Multiply() {
   Match('*');
   Factor();
-  EmitLn("pop rbx");
-  EmitLn("imul rax, rbx");
+  PopMul();
 }
 
 void Divide() {
   Match('/');
   Factor();
-  EmitLn("mov rbx, rax");
-  EmitLn("pop rax");
-  EmitLn("cqo");
-  EmitLn("idiv rbx");
+  PopDiv();
 }
 
 void Fin() {
