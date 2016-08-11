@@ -1,9 +1,11 @@
 #include "stdio.h"
+#include "string.h"
 #include "stdlib.h"
 #include "cradle.h"
 
 #define UPCASE(c) (~(1<<5) & (c))
 
+int NEntry = 0;
 
 void GetChar() {
   Look = getchar();
@@ -11,7 +13,7 @@ void GetChar() {
 
 void Error(char* s) {
   printf("\n");
-  printf("Error: %s\n", s);
+  fprintf(stderr, "Error: %s\n", s);
 }
 
 void Abort(char* s) {
@@ -20,11 +22,13 @@ void Abort(char* s) {
 }
 
 void Expected(char* s) {
+  fprintf(stderr, "Look: %c, Token: %c, Value: %s\n", Look, Token, Value);
   sprintf(tmp, "%s Expected", s);
   Abort(tmp);
 }
 
 void Match(char x) {
+  NewLine();
   if(Look == x) {
     GetChar();
   }
@@ -34,6 +38,7 @@ void Match(char x) {
   }
 }
 
+
 int IsAlpha(char x) {
   return (UPCASE(x) >= 'A' && UPCASE(x) <= 'Z');
 }
@@ -42,17 +47,44 @@ int IsDigit(char x) {
   return x >= '0' && x <= '9';
 }
 
-char GetName() {
-  char c = Look;
+void NewLine() {
+  while(Look == '\n') {
+    GetChar();
+    SkipWhite();
+  }
+}
+
+void SkipWhite() {
+  while(IsWhite(Look)) {
+    GetChar();
+  }
+}
+
+int IsAlNum(char c) {
+  return IsDigit(c) || IsAlpha(c);
+}
+
+int IsWhite(char c) {
+  return strchr(" \t\r\n", c) != NULL;
+}
+void GetName() {
+  NewLine();
 
   if(!IsAlpha(Look)) {
       Expected("Name");
   }
-  GetChar();
-  return UPCASE(c);
+  int i = 0;
+  while(IsAlNum(Look)) {
+    Value[i] = UPCASE(Look);
+    GetChar();
+    i++;
+  }
+  Value[i] = '\0';
+  SkipWhite();
 }
 
 int GetNum() {
+  NewLine();
   if(!IsDigit(Look)) {
     Expected("Integer");
   }
@@ -74,7 +106,11 @@ void EmitLn(char* s) {
 }
 
 void Init() {
+  for(int i =0; i <100; i++){
+    strcpy(ST[i], "ok");
+  }
   GetChar();
+  Scan();
 }
 
 int IsAddop(char c) {
@@ -114,4 +150,48 @@ int IsRelop(char c) {
          c == '#' ||
          c == '<' ||
          c == '>';
+}
+
+int LookupSymbol(char*s, int n) {
+  int i ;
+  for(i = n-1; i >= 0; i--) {
+    if(strcmp(s, ST[i]) == 0) {
+      break;
+    }
+  }
+  return i;
+}
+int Lookup(const char * const * T, char * s, int n) {
+  int i;
+  for(i = n - 1; i >= 0; i--) {
+    if(strcmp(s, T[i]) == 0) {
+      break;
+    }
+  }
+  return  i+1;
+}
+
+void Scan() {
+  GetName();
+  int k = Lookup(KWlist, Value, KWsz);
+  Token = KWcode[k]; 
+}
+
+void MatchString(char* x) {
+  if(strcmp(Value, x) != 0) {
+    Expected(x);
+  }
+}
+
+void AddEntry(char* N, char T) {
+  if(InTable(N)) {
+    sprintf(tmp, "Duplicate Identifier %s", N);
+    Abort(tmp); 
+  }
+  if(NEntry == 100) {
+    Abort("Symbol Table Full");
+  }
+  NEntry++;
+  strcpy(ST[NEntry], N);
+  SType[NEntry] = T;
 }

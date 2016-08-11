@@ -1,6 +1,23 @@
 #include "cradle.h"
 #include "stdio.h"
 #include "string.h"
+
+char KWcode [] = "xilewRWevbep";
+const char * const KWlist[] = {
+  "IF",
+  "ELSE",
+  "ENDIF",
+  "WHILE",
+  "READ",
+  "WRITE",
+  "ENDWHILE",
+  "VAR",
+  "BEGIN",
+  "END",
+  "PROGRAM"
+};
+
+int KWsz = sizeof KWlist / sizeof *KWlist;
 int main() {
   Init();
 
@@ -9,12 +26,9 @@ int main() {
     printf("Unexpected data after '.'\n");
     return 1; 
   }
-  /*
-  //BoolExpression();
-  DoProgram();*/
 }
 void Prog() {
-  Match('p');
+  MatchString("PROGRAM");
   Header();
   TopDecls();
   Main();
@@ -22,35 +36,45 @@ void Prog() {
 }
 void Header() {
   EmitLn("extern printf");
+  EmitLn("extern scanf");
+  EmitLn("section .data");
+  printf("fmt:	db \"%%d\", 10, 0\n");
+  printf("fmtin:	db \"%%d\", 0\n");
+
 }
 
 void TopDecls() {
   EmitLn("section .data");
-  while(Look != 'b') {
-    switch(Look) {
+  Scan();
+  while(Token != 'b') {
+    switch(Token) {
       case 'v': Decl(); break;
       default:
-        sprintf(tmp,"Unrecognized Keyword '%c'", Look);
+        sprintf(tmp,"Unrecognized Keyword '%s'", Value);
         Abort(tmp);
     }
+    Scan();
+    NewLine();
   }
 }
 
 void Decl() {
-  Match('v');
-  Alloc(GetName());
+  GetName();
+  Alloc(Value);
+  SkipWhite();
   while (Look == ',') {
     Match(',');
-    Alloc(GetName());
+    GetName();
+    Alloc(Value);
   }
 }
-void Alloc(char Name) {
+void Alloc(char* Name) {
   if(InTable(Name)) {
-    sprintf(tmp, "Duplicate Variable Name %c", Name);
+    sprintf(tmp, "Duplicate Variable Name %s", Name);
     Abort(tmp);
   }
-  Table[Name-'A'] = 'v';
-  printf("%c:	dq ", Name);
+  AddEntry(Name, 'v');
+  printf( "%s:	DQ ", Name);
   if(Look == '=') {
     Match('=');
     if(Look == '-') {
@@ -65,39 +89,237 @@ void Alloc(char Name) {
 
 }
 
-int InTable(char N) {
-  return Table[N-'A'] != 0;
+int InTable(char* N) {
+  return LookupSymbol(N, 100) != -1;
 }
 
 void Main() {
-  Match('b');
+  MatchString("BEGIN");
   Prolog();
   Block();
-  Match('e');
+  MatchString("END");
   Epilog();
 }
 
 void Block() {
-  while(Look != 'e') {
-    Assignment();
+  Scan();
+  NewLine();
+  while(Token != 'e' && Token != 'l') {
+    switch(Token) {
+      case 'i':
+        DoIf();
+        break;
+      case 'w':
+        DoWhile();
+        break;
+      case 'W':
+        DoWrite();
+        break;
+      case 'R':
+        DoRead();
+        break;
+      default:
+        Assignment();
+    }
+    NewLine();
+    Scan();
   }
 }
 
+void DoWrite() {
+  Match('(');
+  Expression();
+  WriteVar();
+    NewLine();
+  while(Look == ',') {
+    Match(',');
+    Expression();
+    WriteVar();
+    NewLine();
+  }
+  Match(')');
+}
+
+void DoRead() {
+  Match('(');
+  GetName();
+  ReadVar();
+  while(Look == ',') {
+    Match(',');
+    GetName();
+    ReadVar();
+  }
+  Match(')');
+}
 void Assignment() {
-  char Name = GetName();
+  char Name[100];
+  strcpy(Name, Value);
+  Match('=');
+  BoolExpression();
+  Store(Name);
+}
+
+void DoWhile() {
+  char L1[100];
+  char L2[100];
+
+  strcpy(L1, NewLabel());
+  strcpy(L2, NewLabel());
+  PostLabel(L1);
+  BoolExpression();
+  BranchFalse(L2);
+  Block();
+  MatchString("ENDWHILE");
+  Branch(L1);
+  PostLabel(L2);
+}
+
+void DoIf() {
+  char L1[100];
+  char L2[100];
+  BoolExpression();
+  strcpy(L1,  NewLabel());
+  strcpy(L2,  L1);
+  BranchFalse(L1);
+  Block();
+  if(Token == 'l') {
+    Match('l');
+    strcpy(L2,  NewLabel());
+    Branch(L2);
+    PostLabel(L1);
+    Block();
+  }
+  PostLabel(L2);
+  MatchString("ENDIF");
+}
+
+void BoolExpression() {
+  BoolTerm();
+  NewLine();
+  while(IsOrOp(Look)) {
+    Push();
+    switch(Look) {
+      case '|': BoolOr(); break;
+      case '~': BoolXor(); break;
+    }
+    NewLine();
+  }
+}
+void BoolXor() {
+  Match('~');
+  BoolTerm();
+  PopXor();
+}
+void BoolOr() {
+  Match('|');
+  BoolTerm();
+  PopOr();
+}
+
+void BoolTerm() {
+  NotFactor();
+  NewLine();
+  while(Look == '&') {
+    Push();
+    Match('&');
+    NotFactor();
+    PopAnd();
+    NewLine();
+  }
+}
+void NotFactor() {
+
+  if(Look == '!') {
+    Match('!');
+    Relation();
+    NotIt();
+  }
+  else {
+    Relation();
+  }
+}
+
+void Relation() {
+  Expression();
+  if(IsRelop(Look)) {
+    Push();
+    switch(Look) {
+      case '=': Equals();break;
+      case '#': NotEquals();break;
+      case '<': Less();break;
+      case '>': Greater();break;
+    }
+  }
+}
+
+void Equals() {
   Match('=');
   Expression();
-  Store(Name);
+  Compare();
+  SetEqual();
+  Pop();
+}
+
+void NotEquals() {
+  Match('#');
+  Expression();
+  Compare();
+  SetNEqual();
+  Pop();
+}
+
+void Less() {
+  Match('<');
+  if(Look == '=') {
+    LessOrEqual();
+  }
+  else {
+    Expression();
+    Compare();
+    SetLess();
+    Pop();
+  }
+}
+
+void Greater() {
+  Match('>');
+  if(Look == '=') {
+    GreaterOrEqual();
+  }
+  else {
+    Expression();
+    Compare();
+    SetGreater();
+    Pop();
+  }
+}
+
+void LessOrEqual() {
+  Match('=');
+  Expression();
+  Compare();
+  SetLessOrEqual();
+  Pop();
+}
+
+void GreaterOrEqual() {
+  Match('=');
+  Expression();
+  Compare();
+  SetGreaterOrEqual();
+  Pop();
 }
 
 void Expression() {
   FirstTerm();
+  NewLine();
   while(IsAddop(Look)) {
     Push();
     switch(Look) {
       case '+': Add(); break;
       case '-': Subtract(); break;
     }
+    NewLine();
   }
 }
 
@@ -116,12 +338,14 @@ void Term() {
   Term1();
 }
 void Term1() {
+  NewLine();
   while(Look == '*' || Look == '/') {
     Push();
     switch(Look) {
       case '*': Multiply(); break;
       case '/': Divide(); break;
     }
+    NewLine();
   }
 }
 
@@ -151,18 +375,46 @@ void NegFactor() {
 void Factor() {
   if(Look == '(') {
     Match('(');
-    Expression();
+    BoolExpression();
     Match(')');
   }
   else if(IsAlpha(Look)) {
-    LoadVar(GetName());
+    GetName();
+    LoadVar(Value);
   } else {
     LoadConst(GetNum());
   }
 }
 
+void ReadVar() {
+  EmitLn("push rax");
+  EmitLn("mov rdi, fmtin");
+  sprintf(tmp,"mov rsi, %s", Value);
+  EmitLn(tmp);
+  EmitLn("xor rax, rax");
+  EmitLn("call scanf");
+  EmitLn("pop rax");
+}
 
+void WriteVar() {
+  EmitLn("push rax");
+  EmitLn("mov rdi, fmt");
+  EmitLn("mov rsi, rax");
+  EmitLn("xor rax, rax");
+  EmitLn("call printf");
+  EmitLn("pop rax");
+}
 
+void Branch(char* L) {
+  sprintf(tmp,"jmp %s", L);
+  EmitLn(tmp);
+}
+
+void BranchFalse(char* L) {
+  EmitLn("cmp rax, 0");
+  sprintf(tmp,"je %s", L);
+  EmitLn(tmp);
+}
 void Clear() {
   EmitLn("xor rax, rax");
 }
@@ -176,11 +428,11 @@ void LoadConst(int n){
   EmitLn(tmp);
 }
 
-void LoadVar(char Name) {
+void LoadVar(char* Name) {
   if(!InTable(Name)) {
     Undefined(Name);
   }
-  sprintf(tmp, "mov rax, [%c]", Name);
+  sprintf(tmp, "mov rax, [%s]", Name);
   EmitLn(tmp);
 }
 
@@ -214,321 +466,82 @@ void Prolog() {
   EmitLn("section .text");
   EmitLn("global  main");
   PostLabel("main");
+  EmitLn("push rbp");
 }
 
-void Store(char Name) {
+void Store(char* Name) {
   if(!InTable(Name)) {
     Undefined(Name);
   }
-  sprintf(tmp, "mov [%c], rax", Name);
+  sprintf(tmp, "mov [%s], rax", Name);
   EmitLn(tmp);
 }
 
-void Undefined(char n) {
-  sprintf(tmp, "Undefined Identifier %c", n);
+void NotIt() {
+  EmitLn("not rax");
+}
+
+void PopAnd() {
+  EmitLn("and rax, [rsp]");
+  EmitLn("add rsp, 8");
+}
+
+void PopOr() {
+  EmitLn("or rax, [rsp]");
+  EmitLn("add rsp, 8");
+}
+
+void PopXor() {
+  EmitLn("xor rax, [rsp]");
+  EmitLn("add rsp, 8");
+}
+
+void Compare() {
+  EmitLn("cmp rax, [rsp]");
+}
+
+void Pop() {
+  EmitLn("add rsp, 8");
+}
+
+void SetEqual() {
+  EmitLn("sete al");
+  EmitLn("movsx rax, al");
+}
+
+void SetNEqual() {
+  EmitLn("setne al");
+  EmitLn("movsx rax, al");
+}
+
+void SetGreater() {
+  EmitLn("setl al");
+  EmitLn("movsx rax, al");
+}
+
+void SetLess() {
+  EmitLn("setg al");
+  EmitLn("movsx rax, al");
+}
+
+void SetLessOrEqual() {
+  EmitLn("setge al");
+  EmitLn("movsx rax, al");
+}
+
+void SetGreaterOrEqual() {
+  EmitLn("setle al");
+  EmitLn("movsx rax, al");
+}
+
+void Undefined(char* n) {
+  sprintf(tmp, "Undefined Identifier %s", n);
   Abort(tmp);
 }
 
 void Epilog() {
   EmitLn("xor rax, rax");
   EmitLn("ret");
-}
-
-void DoBlock(char Name) {
-  Declarations();
-  sprintf(tmp, "%c", Name);
-  PostLabel("main");
-  EmitLn("push rbp");
-  Statements();
-}
-
-void Declarations() {
-
-  while(strchr("lctvpf", Look)) {
-    switch(Look) {
-      case 'l': Labels();
-      case 'c': Constants();
-      case 't': Types();
-      case 'v': Variables();
-      case 'p': DoProcedure();
-      case 'f': DoFunction();
-    }
-  }
-}
-
-void Labels() {
-  Match('l');
-}
-void Constants() {
-  Match('c');
-}
-void Types() {
-  Match('t');
-}
-void Variables() {
-  Match('v');
-}
-void DoProcedure() {
-  Match('p');
-}
-void DoFunction() {
-  Match('f');
-}
-
-void Statements() {
-  Match('b');
-  while(Look != 'e') {
-    GetChar();
-  }
-  Match('e');
-}
-
-
-void BoolExpression() {
-  BoolTerm();
-  while(IsOrOp(Look)) {
-    EmitLn("push rax");
-    switch(Look) {
-      case '|': BoolOr();break;
-      case '~': BoolXor();break;
-    }
-  }
-}
-
-void BoolTerm() {
-  NotFactor();
-  while (Look == '&') {
-    EmitLn("push rax");
-    Match('&');
-    NotFactor();
-    EmitLn("and rax, [rsp]");
-    EmitLn("add rsp, 8");
-  }
-}
-
-void NotFactor() {
-  if(Look == '!') {
-    Match('!');
-    BoolFactor();
-    EmitLn("not rax");
-  }
-  else {
-    BoolFactor();
-  }
-}
-void BoolFactor() {
-  if(IsBoolean(Look)) {
-    if(GetBoolean()) {
-      EmitLn("mov rax, -1");
-    }
-    else {
-      EmitLn("xor rax, rax");
-    }
-  }
-  else {
-    Relation();
-  }
-}
-void Relation() {
-  Expression();
-  if (IsRelop(Look)) {
-    EmitLn("push rax");
-    switch(Look) {
-      case '=': Equals(); break;
-      case '#': NotEquals(); break;
-      case '<': Less(); break;
-      case '>': Greater(); break;
-    }
-    EmitLn("add rsp, 8");
-    EmitLn("cmp rax, 0");
-  }
-}
-
-void Equals() {
-  Match('=');
-  Expression();
-  EmitLn("cmp rax, [rsp]");
-  EmitLn("sete al");
-}
-
-void NotEquals() {
-  Match('#');
-  Expression();
-  EmitLn("cmp rax, [rsp]");
-  EmitLn("setne al");
-}
-
-void Less() {
-  Match('<');
-  Expression();
-  EmitLn("cmp rax, [rsp]");
-  EmitLn("setg al");
-}
-
-void Greater() {
-  Match('>');
-  Expression();
-  EmitLn("cmp rax, [rsp]");
-  EmitLn("setle al");
-
-}
-void BoolOr() {
-  Match('|');
-  BoolTerm();
-  EmitLn("or rax, [rsp]");
-  EmitLn("add rsp, 8");
-}
-
-void BoolXor() {
-  Match('~');
-  BoolTerm();
-  EmitLn("xor rax, [rsp]");
-  EmitLn("add rsp, 8");
-}
-
-void DoProgram() {
-  Block();
-  if(Look != 'e') {
-    Expected("End");
-  }
-  EmitLn("END");
-}
-
-
-
-void Other() {
-  sprintf(tmp, "%c", GetName());
-  EmitLn(tmp);
-}
-
-void DoIf() {
-  char L1[100];
-  char L2[100];
-  Match('i');
-  BoolExpression();
-  strcpy(L1,  NewLabel());
-  strcpy(L2,  L1);
-  sprintf(tmp, "jz %s", L1);
-  EmitLn(tmp);
-  Block();
-  if(Look == 'l') {
-    Match('l');
-    strcpy(L2,  NewLabel());
-    sprintf(tmp, "jmp %s", L2);
-    EmitLn(tmp);
-    PostLabel(L1);
-    Block();
-  }
-  Match('e');
-  PostLabel(L2);
-}
-
-void DoWhile() {
-  char L1[100];
-  char L2[100];
-
-  Match('w');
-  strcpy(L1, NewLabel());
-  strcpy(L2, NewLabel());
-  PostLabel(L1);
-  BoolExpression();
-  sprintf(tmp, "jz %s", L2);
-  EmitLn(tmp);
-  Block();
-  Match('e');
-  sprintf(tmp, "jmp %s", L1);
-  EmitLn(tmp);
-  PostLabel(L2);
-}
-
-void DoLoop() {
-  char L[100];
-  Match('p');
-  strcpy(L, NewLabel());
-  PostLabel(L);
-  Block();
-  Match('e');
-  sprintf(tmp, "jmp %s", L);
-  EmitLn(tmp);
-}
-
-void DoRepeat() {
-  char L[100];
-  Match('r');
-  strcpy(L, NewLabel());
-  PostLabel(L);
-  Block();
-  Match('u');
-  BoolExpression();
-  sprintf(tmp, "jmp %s", L);
-  EmitLn(tmp);
-}
-
-void DoFor() {
-  char L1[100];
-  char L2[100];
-
-  Match('f');
-  strcpy(L1, NewLabel());
-  strcpy(L2, NewLabel());
-  char Name = GetName();
-
-  Match('=');
-  Expression();
-  EmitLn("dec rax");
-  sprintf(tmp, "mov qword [%c], rax", Name);
-  EmitLn(tmp);
-  Expression();
-  EmitLn("push rax");
-  PostLabel(L1);
-  sprintf(tmp, "mov rax, qword [%c]", Name);
-  EmitLn(tmp);
-  EmitLn("inc rax");
-  sprintf(tmp, "mov qword [%c], rax", Name);
-  EmitLn(tmp);
-  EmitLn("cmp rax, qword [rsp]");
-  sprintf(tmp, "jg %s", L2);
-  EmitLn(tmp);
-  Block();
-  Match('e'); 
-  sprintf(tmp, "jmp %s", L1);
-  EmitLn(tmp);
-  PostLabel(L2);
-  EmitLn("add rsp, 8");
-
-}
-
-void SignedFactor() {
-  if(Look == '+') {
-    GetChar();
-  }
-  else if(Look == '-') {
-    GetChar();
-    if(IsDigit(Look)) {
-      sprintf(tmp, "mov rax, -%c", GetNum());
-      EmitLn(tmp);
-    }
-    else {
-      Factor();
-      EmitLn("neg rax");
-    }
-  }
-  else {
-    Factor();
-  }
-}
-
-void Ident() {
-  char Name = GetName();
-  if(Look == ('(')) {
-    Match('(');
-    Match(')');
-    sprintf(tmp, "call %c", Name);
-    EmitLn(tmp);
-  } else {
-    sprintf(tmp, "mov rax, [%c]", Name);
-    EmitLn(tmp);
-  }
 }
 
 void Subtract() {
@@ -550,6 +563,3 @@ void Divide() {
   PopDiv();
 }
 
-void Fin() {
-  if(Look == '\n') GetChar();
-}
