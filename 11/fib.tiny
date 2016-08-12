@@ -1,0 +1,14 @@
+program
+var a,b,c,i,limit
+begin
+a=1
+b=1
+read(limit)
+while i<limit
+c=a+b
+b=a
+a=c
+i=i+1
+write(a)
+endwhile
+end.
