@@ -1,3 +1,7 @@
 .ycm_extra_conf.pyc
 a.out
 run
+*.o
+tiny
+*.asm
+binario

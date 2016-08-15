@@ -1,0 +1,9 @@
+PROGRAM;
+var myvar;
+BEGIN
+myvar = 1000;
+WHILE MYVAR >= 10
+  WRITE(MYVAR);
+  MYVAR=MYVAR/10;
+ENDWHILE
+END.

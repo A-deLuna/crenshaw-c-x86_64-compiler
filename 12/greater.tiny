@@ -1,0 +1,8 @@
+PROGRAM;
+var x, y, z;
+BEGIN
+read(x); read(y); read(z);
+if x < y & y < z
+  write(x, y, z);
+ENDIF
+END.
